@@ -1,0 +1,184 @@
+variables:
+  - group: Sitecore Docker Image Variable Group
+  # - group: Self-hosted Build Agent Variable Group
+  - name: SITECORE_VERSION
+    value: 9.3.0
+  - name: WINDOWSSERVERCORE_VERSION
+    value: ltsc2019
+  - name: NANOSERVER_VERSION
+    value: 1909
+  - name: buildLinuxImages
+    value: false
+
+  # VM Setup
+  - name: vm.windows.name
+    value: $(buildAgent.resourceName)
+  - name: vm.linux.name
+    value: ""
+  - name: agentPoolName
+    value: $(buildAgent.agentPoolName)
+
+  # Fileshare setup TODO use assets drive to drastically reduce build times
+  - name: useAssetsDrive
+    value: false
+  - name: shared.folder.server
+    value: ""
+  - name: azure.fileshare.password
+    value: ""
+
+  # Container Registry to push build images to
+  - name: PushMode
+    value: WhenChanged
+
+  # Build Arguments
+  - name: buildLinuxImages
+    value: false
+  - name: pruneImages
+    value: false
+  - name: install.windows.source.path
+    value: "$(Build.SourcesDirectory)\\packages"
+  - name: install.linux.source.path
+    value: ""
+  - name: tags
+    value: sitecore-xp-sxa-ps-jss-sqldev:$(SITECORE_VERSION)-windowsservercore-$(WINDOWSSERVERCORE_VERSION),sitecore-xp-sxa-solr:$(SITECORE_VERSION)-nanoserver-$(NANOSERVER_VERSION),sitecore-ps:$(SITECORE_VERSION)-windowsservercore-$(WINDOWSSERVERCORE_VERSION),sitecore-xp-xconnect:$(SITECORE_VERSION)-windowsservercore-$(WINDOWSSERVERCORE_VERSION),sitecore-xp-xconnect-automationengine:$(SITECORE_VERSION)-windowsservercore-$(WINDOWSSERVERCORE_VERSION),sitecore-xp-xconnect-indexworker:$(SITECORE_VERSION)-windowsservercore-$(WINDOWSSERVERCORE_VERSION),sitecore-xp-xconnect-processingengine:$(SITECORE_VERSION)-windowsservercore-$(WINDOWSSERVERCORE_VERSION),sitecore-xp-sxa-ps-jss-cd:$(SITECORE_VERSION)-windowsservercore-$(WINDOWSSERVERCORE_VERSION),sitecore-xp-sxa-ps-jss-standalone:$(SITECORE_VERSION)-windowsservercore-$(WINDOWSSERVERCORE_VERSION)
+
+stages:
+  - stage: Start_VMs
+    displayName: "Start VMs"
+    jobs:
+      - job: Start_Windows_VM
+        displayName: "Start Windows VM"
+        pool:
+          vmImage: Windows-2019 # Use Microsoft hosted image to start VMs
+        steps:
+          - task: vfabing.AzureVirtualMachineManagerTask.custom-build-release-task.AzureVirtualMachineManagerTask@1
+            displayName: "Start Docker Build VM"
+            inputs:
+              Action: "Start VM"
+              azureSubscription: DevOps - Test
+              ResourceGroupName: azdevops-self-hosted-agent
+              VmName: vm-vsts-frtpsd
+      - job: Start_Linux_VM
+        displayName: "Start Linux VM"
+        condition: eq(variables['buildLinuxImages'], 'true')
+        pool:
+          vmImage: Windows-2019
+        steps:
+          - task: vfabing.AzureVirtualMachineManagerTask.custom-build-release-task.AzureVirtualMachineManagerTask@1
+            displayName: "Start Docker Build VM"
+            inputs:
+              Action: "Start VM"
+              azureSubscription: DevOps - Test
+              ResourceGroupName: azdevops-self-hosted-agent
+              VmName: ""
+
+  - stage: Build_Images
+    displayName: "Build Images"
+    dependsOn: Start_VMs
+    jobs:
+      - job: Build_Windows_Images
+        timeoutInMinutes: 720
+        displayName: "Build Windows Images"
+        pool:
+          name: Self-hosted cloud agents
+        steps:
+          - powershell: |
+              Test-NetConnection -ComputerName "$(shared.folder.server)" -Port 445
+              Invoke-Expression -Command "cmdkey /add:$(shared.folder.server) /user:Azure\dockerassets /pass:$(azure.fileshare.password)"
+              New-PSDrive -Name Z -PSProvider FileSystem -Root "\\$(shared.folder.server)\docker-assets" -Persist -ErrorAction SilentlyContinue
+            condition: eq(variables['useAssetsDrive'], 'true')
+            displayName: "Connect to Asset Drive"
+          - task: Docker@2
+            displayName: login
+            inputs:
+              containerRegistry: "docker-registry"
+              command: login
+          - checkout: self
+            clean: all
+          - powershell: |
+              Import-Module (Join-Path "$(Build.SourcesDirectory)" "\modules\SitecoreImageBuilder") -Force
+              Write-Host SitecoreImageBuilder\Invoke-PackageRestore -Path (Join-Path "$(Build.SourcesDirectory)" "windows") -Destination $(install.windows.source.path) -SitecoreUsername $(sitecore.username) -SitecorePassword "..."  -Tags "$(tags)"
+              SitecoreImageBuilder\Invoke-PackageRestore -Path (Join-Path "$(Build.SourcesDirectory)" "windows") -Destination $(install.windows.source.path) -SitecoreUsername "$(sitecore.username)" -SitecorePassword "$(sitecore.password)"  -Tags "$(tags)"
+              SitecoreImageBuilder\Invoke-Build -Tags "$(tags)" -Path (Join-Path "$(Build.SourcesDirectory)" "windows") -InstallSourcePath $(install.windows.source.path) -Registry $(container.registry.name) -PushMode $(PushMode)
+            displayName: "Build Images"
+          - powershell: |
+              docker image prune --force
+            condition: and(succeeded(), eq(variables['pruneImages'], 'true'))
+            displayName: "Prune"
+
+      - job: Build_Linux_Images
+        timeoutInMinutes: 720
+        displayName: "Build Linux Images"
+        condition: eq(variables['buildLinuxImages'], 'true')
+        pool:
+          name: $(agentPoolName)
+          demands:
+            - Agent.OS -equals Linux
+        steps:
+          - task: Bash@3
+            condition: eq(variables['useAssetsDrive'], 'true')
+            inputs:
+              targetType: inline
+              script: |
+                if [ -d "$(install.linux.source.path)" ]; then
+                exit 0
+                fi
+                sudo mkdir $(install.linux.source.path)
+
+                if [ ! -d "/etc/smbcredentials" ]; then
+                sudo mkdir /etc/smbcredentials
+                fi
+                if [ ! -f "/etc/smbcredentials/dockerassets.cred" ]; then
+                    sudo bash -c 'echo "username=dockerassets" >> /etc/smbcredentials/dockerassets.cred'
+                    sudo bash -c 'echo "password=$(azure.fileshare.password)" >> /etc/smbcredentials/dockerassets.cred'
+                fi
+                sudo chmod 600 /etc/smbcredentials/dockerassets.cred
+
+                sudo bash -c 'echo "//$(shared.folder.server)/docker-assets $(install.linux.source.path) cifs nofail,vers=3.0,credentials=/etc/smbcredentials/dockerassets.cred,dir_mode=0777,file_mode=0777,serverino" >> /etc/fstab'
+                sudo mount -t cifs //$(shared.folder.server)/docker-assets $(install.linux.source.path) -o vers=3.0,credentials=/etc/smbcredentials/dockerassets.cred,dir_mode=0777,file_mode=0777,serverino
+          - task: Docker@2
+            enabled: true
+            displayName: login
+            inputs:
+              containerRegistry: "docker-registry"
+              command: login
+          - checkout: self
+            clean: all
+          - powershell: |
+              "$(container.registry.password)" | docker login -u "$(container.registry.username)" --password-stdin $(container.registry.fullname)
+              Import-Module (Join-Path "$(Build.SourcesDirectory)" "\modules\SitecoreImageBuilder") -Force
+              SitecoreImageBuilder\Invoke-PackageRestore -Tags "$(tags)" -Path (Join-Path "$(Build.SourcesDirectory)" "linux") -Destination "$(install.linux.source.path)" -SitecoreUsername $(sitecore.username) -SitecorePassword "$(sitecore.password)"
+              SitecoreImageBuilder\Invoke-Build -Tags "$(tags)" -Path (Join-Path "$(Build.SourcesDirectory)" "linux") -InstallSourcePath "$(install.linux.source.path)" -Registry $(container.registry.name) -PushMode $(PushMode)
+          - powershell: |
+              docker image prune --force
+            condition: and(succeeded(), eq(variables['pruneImages'], 'true'))
+  # - stage: Stop_VMs
+  #   condition: always()
+  #   dependsOn: Build_Images
+  #   displayName: "Stop VMs"
+  #   jobs:
+  #     - job: Stop_Windows_VM
+  #       displayName: "Stop Windows VM"
+  #       pool:
+  #         vmImage: Windows-2019 # Use Microsoft hosted image to Stop VMs
+  #       steps:
+  #         - task: vfabing.AzureVirtualMachineManagerTask.custom-build-release-task.AzureVirtualMachineManagerTask@1
+  #           displayName: "Stop Docker Build VM"
+  #           inputs:
+  #             Action: "Stop VM"
+  #             azureSubscription: DevOps - Test
+  #             ResourceGroupName: azdevops-self-hosted-agent
+  #             VmName: vm-vsts-frtpsd
+  #     - job: Stop_Linux_VM
+  #       displayName: "Stop Linux VM"
+  #       condition: eq(variables['buildLinuxImages'], 'true')
+  #       pool:
+  #         vmImage: Windows-2019
+  #       steps:
+  #         - task: vfabing.AzureVirtualMachineManagerTask.custom-build-release-task.AzureVirtualMachineManagerTask@1
+  #           displayName: "Stop Docker Build VM"
+  #           inputs:
+  #             Action: "Stop VM"
+  #             azureSubscription: DevOps - Test
+  #             ResourceGroupName: azdevops-self-hosted-agent
+  #             VmName: ""
