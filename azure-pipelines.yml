@@ -39,8 +39,6 @@ variables:
     value: "$(Build.SourcesDirectory)\\packages"
   - name: install.linux.source.path
     value: ""
-  - name: tags
-    value: sitecore-xp-sxa-ps-jss-sqldev:$(SITECORE_VERSION)-windowsservercore-$(WINDOWSSERVERCORE_VERSION),sitecore-xp-sxa-solr:$(SITECORE_VERSION)-nanoserver-$(NANOSERVER_VERSION),sitecore-ps:$(SITECORE_VERSION)-windowsservercore-$(WINDOWSSERVERCORE_VERSION),sitecore-xp-xconnect:$(SITECORE_VERSION)-windowsservercore-$(WINDOWSSERVERCORE_VERSION),sitecore-xp-xconnect-automationengine:$(SITECORE_VERSION)-windowsservercore-$(WINDOWSSERVERCORE_VERSION),sitecore-xp-xconnect-indexworker:$(SITECORE_VERSION)-windowsservercore-$(WINDOWSSERVERCORE_VERSION),sitecore-xp-xconnect-processingengine:$(SITECORE_VERSION)-windowsservercore-$(WINDOWSSERVERCORE_VERSION),sitecore-xp-sxa-ps-jss-cd:$(SITECORE_VERSION)-windowsservercore-$(WINDOWSSERVERCORE_VERSION),sitecore-xp-sxa-ps-jss-standalone:$(SITECORE_VERSION)-windowsservercore-$(WINDOWSSERVERCORE_VERSION)
 
 stages:
   - stage: Start_VMs
@@ -97,9 +95,9 @@ stages:
             clean: all
           - powershell: |
               Import-Module (Join-Path "$(Build.SourcesDirectory)" "\modules\SitecoreImageBuilder") -Force
-              Write-Host SitecoreImageBuilder\Invoke-PackageRestore -Path (Join-Path "$(Build.SourcesDirectory)" "windows") -Destination $(install.windows.source.path) -SitecoreUsername $(sitecore.username) -SitecorePassword "..."  -Tags "$(tags)"
-              SitecoreImageBuilder\Invoke-PackageRestore -Path (Join-Path "$(Build.SourcesDirectory)" "windows") -Destination $(install.windows.source.path) -SitecoreUsername "$(sitecore.username)" -SitecorePassword "$(sitecore.password)"  -Tags "$(tags)"
-              SitecoreImageBuilder\Invoke-Build -ImplicitTagsBehavior "Include" -Tags "$(tags)" -Path (Join-Path "$(Build.SourcesDirectory)" "windows") -InstallSourcePath $(install.windows.source.path) -Registry $(container.registry.name) -PushMode $(PushMode)
+              Write-Host SitecoreImageBuilder\Invoke-PackageRestore -Path (Join-Path "$(Build.SourcesDirectory)" "windows") -Destination $(install.windows.source.path) -SitecoreUsername $(sitecore.username) -SitecorePassword "..."
+              SitecoreImageBuilder\Invoke-PackageRestore -Path (Join-Path "$(Build.SourcesDirectory)" "windows") -Destination $(install.windows.source.path) -SitecoreUsername "$(sitecore.username)" -SitecorePassword "$(sitecore.password)"
+              SitecoreImageBuilder\Invoke-Build -ImplicitTagsBehavior "Include" -Path (Join-Path "$(Build.SourcesDirectory)" "windows") -InstallSourcePath $(install.windows.source.path) -Registry $(container.registry.name) -PushMode $(PushMode)
             displayName: "Build Images"
           - powershell: |
               docker image prune --force
@@ -147,8 +145,8 @@ stages:
           - powershell: |
               "$(container.registry.password)" | docker login -u "$(container.registry.username)" --password-stdin $(container.registry.fullname)
               Import-Module (Join-Path "$(Build.SourcesDirectory)" "\modules\SitecoreImageBuilder") -Force
-              SitecoreImageBuilder\Invoke-PackageRestore -Tags "$(tags)" -Path (Join-Path "$(Build.SourcesDirectory)" "linux") -Destination "$(install.linux.source.path)" -SitecoreUsername $(sitecore.username) -SitecorePassword "$(sitecore.password)"
-              SitecoreImageBuilder\Invoke-Build -ImplicitTagsBehavior "Include" -Tags "$(tags)" -Path (Join-Path "$(Build.SourcesDirectory)" "linux") -InstallSourcePath "$(install.linux.source.path)" -Registry $(container.registry.name) -PushMode $(PushMode)
+              SitecoreImageBuilder\Invoke-PackageRestore -Path (Join-Path "$(Build.SourcesDirectory)" "linux") -Destination "$(install.linux.source.path)" -SitecoreUsername $(sitecore.username) -SitecorePassword "$(sitecore.password)"
+              SitecoreImageBuilder\Invoke-Build -ImplicitTagsBehavior "Include" -Path (Join-Path "$(Build.SourcesDirectory)" "linux") -InstallSourcePath "$(install.linux.source.path)" -Registry $(container.registry.name) -PushMode $(PushMode)
           - powershell: |
               docker image prune --force
             condition: and(succeeded(), eq(variables['pruneImages'], 'true'))
