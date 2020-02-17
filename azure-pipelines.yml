@@ -20,11 +20,7 @@ variables:
 
   # Fileshare setup TODO use assets drive to drastically reduce build times
   - name: useAssetsDrive
-    value: false
-  - name: shared.folder.server
-    value: ""
-  - name: azure.fileshare.password
-    value: ""
+    value: true
 
   # Container Registry to push build images to
   - name: PushMode
@@ -36,7 +32,7 @@ variables:
   - name: pruneImages
     value: false
   - name: install.windows.source.path
-    value: "$(Build.SourcesDirectory)\\packages"
+    value: Z:\
   - name: install.linux.source.path
     value: ""
 
@@ -82,8 +78,8 @@ stages:
         steps:
           - powershell: |
               Test-NetConnection -ComputerName "$(shared.folder.server)" -Port 445
-              Invoke-Expression -Command "cmdkey /add:$(shared.folder.server) /user:Azure\dockerassets /pass:$(azure.fileshare.password)"
-              New-PSDrive -Name Z -PSProvider FileSystem -Root "\\$(shared.folder.server)\docker-assets" -Persist -ErrorAction SilentlyContinue
+              Invoke-Expression -Command "cmdkey /add:$(shared.folder.server) /user:$(azure.fileshare.user) /pass:$(azure.fileshare.password)"
+              New-PSDrive -Name Z -PSProvider FileSystem -Root "\\$(shared.folder.server)" -Persist -ErrorAction SilentlyContinue
             condition: eq(variables['useAssetsDrive'], 'true')
             displayName: "Connect to Asset Drive"
           - task: Docker@2
@@ -96,7 +92,6 @@ stages:
           - powershell: |
               [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
               Import-Module (Join-Path "$(Build.SourcesDirectory)" "\modules\SitecoreImageBuilder") -Force
-              Write-Host SitecoreImageBuilder\Invoke-PackageRestore -Path (Join-Path "$(Build.SourcesDirectory)" "windows") -Destination $(install.windows.source.path) -SitecoreUsername $(sitecore.username) -SitecorePassword "..."
               SitecoreImageBuilder\Invoke-PackageRestore -Path (Join-Path "$(Build.SourcesDirectory)" "windows") -Destination $(install.windows.source.path) -SitecoreUsername "$(sitecore.username)" -SitecorePassword "$(sitecore.password)"
               SitecoreImageBuilder\Invoke-Build -ImplicitTagsBehavior "Include" -Path (Join-Path "$(Build.SourcesDirectory)" "windows") -InstallSourcePath $(install.windows.source.path) -Registry $(container.registry.name) -PushMode $(PushMode)
             displayName: "Build Images"
