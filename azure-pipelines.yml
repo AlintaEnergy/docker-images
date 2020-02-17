@@ -20,7 +20,7 @@ variables:
 
   # Fileshare setup TODO use assets drive to drastically reduce build times
   - name: useAssetsDrive
-    value: true
+    value: false
 
   # Container Registry to push build images to
   - name: PushMode
