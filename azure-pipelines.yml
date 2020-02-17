@@ -94,6 +94,7 @@ stages:
           - checkout: self
             clean: all
           - powershell: |
+              [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
               Import-Module (Join-Path "$(Build.SourcesDirectory)" "\modules\SitecoreImageBuilder") -Force
               Write-Host SitecoreImageBuilder\Invoke-PackageRestore -Path (Join-Path "$(Build.SourcesDirectory)" "windows") -Destination $(install.windows.source.path) -SitecoreUsername $(sitecore.username) -SitecorePassword "..."
               SitecoreImageBuilder\Invoke-PackageRestore -Path (Join-Path "$(Build.SourcesDirectory)" "windows") -Destination $(install.windows.source.path) -SitecoreUsername "$(sitecore.username)" -SitecorePassword "$(sitecore.password)"
