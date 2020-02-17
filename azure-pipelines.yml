@@ -77,6 +77,11 @@ stages:
           name: Self-hosted cloud agents
         steps:
           - powershell: |
+              whoami;
+              whoami /groups;
+              Write-Host Checking docker info;
+              docker system info --format '{{json .}}';
+          - powershell: |
               Test-NetConnection -ComputerName "$(shared.folder.server)" -Port 445
               Invoke-Expression -Command "cmdkey /add:$(shared.folder.server) /user:$(azure.fileshare.user) /pass:$(azure.fileshare.password)"
               New-PSDrive -Name Z -PSProvider FileSystem -Root "\\$(shared.folder.server)" -Persist -ErrorAction SilentlyContinue
