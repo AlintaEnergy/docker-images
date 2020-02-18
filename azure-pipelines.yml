@@ -32,7 +32,7 @@ variables:
   - name: pruneImages
     value: false
   - name: install.windows.source.path
-    value: Z:\
+    value: $(Build.SourcesDirectory)\packages
   - name: install.linux.source.path
     value: ""
 
